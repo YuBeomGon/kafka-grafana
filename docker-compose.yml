@@ -1,0 +1,93 @@
+version: '3.8'
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.0.1  # Confluent Zookeeper 이미지
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+
+  kafka:
+    image: confluentinc/cp-kafka:7.0.1  # Confluent Kafka 이미지
+    container_name: kafka
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    depends_on:
+      - zookeeper
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "9092"]  # Kafka 포트가 열릴 때까지 대기
+      interval: 10s  # 10초마다 체크
+      timeout: 5s
+      retries: 10      
+
+  postgresql:
+    image: postgres:15
+    container_name: postgresql
+    environment:
+      POSTGRES_USER: jake
+      POSTGRES_PASSWORD: kk3249
+      POSTGRES_DB: metricsdb
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jake -d metricsdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5      
+    networks:
+      - default
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    depends_on:
+      - postgresql
+    volumes:
+      - grafana-data:/var/lib/grafana     
+    networks:
+      - default
+      
+  producer:
+    build: ./producer
+    container_name: producer
+    environment:
+      KAFKA_BROKER: kafka:9092
+    depends_on:
+      - kafka      
+
+  consumer:
+    build: ./consumer
+    container_name: consumer
+    environment:
+      KAFKA_BROKER: kafka:9092
+      POSTGRES_HOST: postgresql
+      POSTGRES_DB: metricsdb
+      POSTGRES_USER: jake
+      POSTGRES_PASSWORD: kk3249
+    depends_on:
+      - kafka
+      - postgresql   
+      
+volumes:
+  postgres-data:
+  grafana-data:
+
+
+networks:
+  default:
+    driver: bridge  
